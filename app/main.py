@@ -38,6 +38,18 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="UVDB", version="0.1.0", lifespan=lifespan)
 
 
+@app.get("/")
+async def home():
+    return {
+        "app": settings.app_name,
+        "status": "running",
+        "version": "0.1.0",
+        "health": "/health",
+        "docs": "/docs",
+        "telegram_bot": "https://t.me/donins_bot",
+    }
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "app": settings.app_name, "version": "0.1.0"}
