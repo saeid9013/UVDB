@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import ClassVar
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramNetworkError
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
