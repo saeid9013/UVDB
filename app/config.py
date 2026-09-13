@@ -24,9 +24,9 @@ class Settings(BaseSettings):
     max_file_size: int = 500 * 1024 * 1024
     max_video_duration: int = 60 * 60
     max_concurrent_downloads: int = 3
-    download_timeout: int = 300
-    request_total_timeout: int = 600
-    telegram_upload_timeout: int = 180
+    download_timeout: int = 1200
+    request_total_timeout: int = 1800
+    telegram_upload_timeout: int = 600
     retry_count: int = 2
     temp_retention_minutes: int = 30
     daily_download_limit: int = 5
