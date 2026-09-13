@@ -39,12 +39,18 @@ async def process_download(ctx: dict, request_id: int) -> None:
                 try:
                     from aiogram.types import FSInputFile
 
-                    await bot.send_document(
-                        job.user.telegram_user_id,
-                        FSInputFile(output),
-                        caption="دانلود شما آماده است ✅",
-                        request_timeout=settings.telegram_upload_timeout,
-                    )
+                    for attempt in range(3):
+                        try:
+                            await bot.send_document(
+                                job.user.telegram_user_id,
+                                FSInputFile(output),
+                                caption="دانلود شما آماده است ✅",
+                                request_timeout=settings.telegram_upload_timeout,
+                            )
+                            break
+                        except TelegramNetworkError:
+                            if attempt == 2:
+                                raise
                 finally:
                     await bot.session.close()
             job.status = "completed"
