@@ -1,6 +1,8 @@
 import asyncio
 import base64
+import json
 import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -110,7 +112,7 @@ def _download_sync(
     common = {
         "outtmpl": template,
         "noplaylist": True,
-        "max_filesize": settings.max_file_size,
+        "max_filesize": settings.max_source_file_size,
         "retries": 2,
         "continuedl": False,
         **_site_options(url, settings),
@@ -136,20 +138,96 @@ def _download_sync(
         options = {**common, "format": selector, "merge_output_format": "mp4"}
     with yt_dlp.YoutubeDL(options) as ydl:
         ydl.download([url])
+    allowed_suffixes = {".mp3"} if output_type == "mp3" else {".mp4", ".mkv", ".webm", ".mov"}
     files = [
         item
         for item in directory.iterdir()
-        if item.is_file() and not item.name.endswith((".part", ".ytdl"))
+        if item.is_file() and item.suffix.lower() in allowed_suffixes
     ]
     if not files:
         raise MediaError("فایل خروجی ایجاد نشد.")
     return max(files, key=lambda item: item.stat().st_mtime)
 
 
+def _compress_video_sync(source: Path, max_size: int) -> Path:
+    probe = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "json",
+            str(source),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    duration = float(json.loads(probe.stdout)["format"]["duration"])
+    if duration <= 0:
+        raise MediaError("مدت ویدئو برای فشرده‌سازی قابل تشخیص نیست.")
+
+    target_bytes = int(max_size * 0.90)
+    audio_kbps = 48
+    video_kbps = max(48, int(target_bytes * 8 / duration / 1000) - audio_kbps - 8)
+    output = source.with_name("compressed.mp4")
+    passlog = str(source.with_name("ffmpeg-pass"))
+    common = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(source),
+        "-map",
+        "0:v:0",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-b:v",
+        f"{video_kbps}k",
+        "-maxrate",
+        f"{video_kbps}k",
+        "-bufsize",
+        f"{video_kbps * 2}k",
+        "-vf",
+        r"scale=min(854\,iw):-2",
+    ]
+    subprocess.run(
+        [*common, "-pass", "1", "-passlogfile", passlog, "-an", "-f", "null", "NUL"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            *common,
+            "-pass",
+            "2",
+            "-passlogfile",
+            passlog,
+            "-map",
+            "0:a:0?",
+            "-c:a",
+            "aac",
+            "-b:a",
+            f"{audio_kbps}k",
+            "-movflags",
+            "+faststart",
+            str(output),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    if not output.exists() or output.stat().st_size > max_size:
+        raise MediaError("فشرده‌سازی ویدئو به اندازه قابل ارسال ممکن نشد.")
+    return output
+
+
 async def download_media(
     url: str, output_type: str, quality: str, directory: Path, settings: Settings
 ) -> Path:
-    if shutil.disk_usage(directory).free < settings.max_file_size:
+    if shutil.disk_usage(directory).free < settings.max_source_file_size:
         raise MediaError("فضای موقت کافی برای دانلود وجود ندارد.")
     try:
         result = await asyncio.wait_for(
@@ -160,7 +238,12 @@ async def download_media(
         raise MediaError("دانلود یا تبدیل رسانه ناموفق بود.") from exc
     size = result.stat().st_size
     if size > settings.max_file_size:
-        raise MediaError("حجم فایل بیشتر از حد مجاز است.")
+        if output_type == "mp3":
+            raise MediaError("حجم فایل صوتی بیشتر از حد مجاز تلگرام است.")
+        try:
+            result = await asyncio.to_thread(_compress_video_sync, result, settings.max_file_size)
+        except (OSError, subprocess.SubprocessError, KeyError, ValueError) as exc:
+            raise MediaError("فشرده‌سازی ویدئو برای ارسال در تلگرام ناموفق بود.") from exc
     return result
 
 
