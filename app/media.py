@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -7,7 +8,7 @@ from uuid import uuid4
 
 import yt_dlp
 
-from app.config import Settings
+from app.config import Settings, get_settings
 
 
 class MediaError(RuntimeError):
@@ -22,8 +23,33 @@ class MediaInfo:
     formats: list[dict]
 
 
-def _extract_sync(url: str) -> MediaInfo:
-    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noplaylist": True}) as ydl:
+def _youtube_options(settings: Settings) -> dict:
+    options: dict = {}
+    if settings.youtube_proxy_url:
+        options["proxy"] = settings.youtube_proxy_url
+    if settings.youtube_cookies_b64:
+        cookie_path = settings.temp_dir.resolve() / ".youtube-cookies.txt"
+        cookie_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            contents = base64.b64decode(settings.youtube_cookies_b64, validate=True)
+        except ValueError as exc:
+            raise MediaError("تنظیمات کوکی یوتیوب نامعتبر است.") from exc
+        if not contents.startswith((b"# Netscape HTTP Cookie File", b"# HTTP Cookie File")):
+            raise MediaError("فایل کوکی یوتیوب باید با فرمت Netscape باشد.")
+        cookie_path.write_bytes(contents.replace(b"\r\n", b"\n"))
+        cookie_path.chmod(0o600)
+        options["cookiefile"] = str(cookie_path)
+    return options
+
+
+def _extract_sync(url: str, settings: Settings) -> MediaInfo:
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        **_youtube_options(settings),
+    }
+    with yt_dlp.YoutubeDL(options) as ydl:
         data = ydl.extract_info(url, download=False)
     if data.get("_type") == "playlist":
         raise MediaError("Playlist پشتیبانی نمی‌شود.")
@@ -40,10 +66,16 @@ def _extract_sync(url: str) -> MediaInfo:
     )
 
 
-async def extract_info(url: str, timeout: int = 60) -> MediaInfo:
+async def extract_info(url: str, timeout: int = 60, settings: Settings | None = None) -> MediaInfo:
+    settings = settings or get_settings()
     try:
-        return await asyncio.wait_for(asyncio.to_thread(_extract_sync, url), timeout)
+        return await asyncio.wait_for(asyncio.to_thread(_extract_sync, url, settings), timeout)
     except (TimeoutError, yt_dlp.utils.DownloadError) as exc:
+        detail = str(exc).lower()
+        if "not a bot" in detail or "sign in" in detail:
+            raise MediaError(
+                "یوتیوب دسترسی سرور را محدود کرده است؛ کوکی یوتیوب مدیر باید به‌روزرسانی شود."
+            ) from exc
         raise MediaError("دریافت اطلاعات رسانه ناموفق بود.") from exc
 
 
@@ -60,15 +92,16 @@ class TemporaryJob:
 
 
 def _download_sync(
-    url: str, output_type: str, quality: str, directory: Path, max_file_size: int
+    url: str, output_type: str, quality: str, directory: Path, settings: Settings
 ) -> Path:
     template = str(directory / "media.%(ext)s")
     common = {
         "outtmpl": template,
         "noplaylist": True,
-        "max_filesize": max_file_size,
+        "max_filesize": settings.max_file_size,
         "retries": 2,
         "continuedl": False,
+        **_youtube_options(settings),
     }
     if output_type == "mp3":
         options = {
@@ -108,9 +141,7 @@ async def download_media(
         raise MediaError("فضای موقت کافی برای دانلود وجود ندارد.")
     try:
         result = await asyncio.wait_for(
-            asyncio.to_thread(
-                _download_sync, url, output_type, quality, directory, settings.max_file_size
-            ),
+            asyncio.to_thread(_download_sync, url, output_type, quality, directory, settings),
             settings.download_timeout,
         )
     except (TimeoutError, yt_dlp.utils.DownloadError, ValueError) as exc:
