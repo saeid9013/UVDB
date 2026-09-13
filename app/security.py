@@ -12,6 +12,7 @@ SUPPORTED_HOSTS = {
     "x.com",
     "facebook.com",
     "reddit.com",
+    "pornhub.com",
 }
 
 

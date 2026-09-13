@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from app.config import get_settings
 from app.database import DownloadRequest, SessionLocal, User, init_database
 from app.media import MediaError, extract_info
-from app.security import InvalidUrl, validate_media_url
+from app.security import InvalidUrl, detect_site, validate_media_url
 
 settings = get_settings()
 dispatcher = Dispatcher()
@@ -40,7 +40,7 @@ async def receive_url(message: Message):
     except MediaError as exc:
         await message.answer(str(exc))
         return
-    if info.duration > settings.max_video_duration:
+    if detect_site(url) != "youtube.com" and info.duration > settings.max_video_duration:
         await message.answer("مدت ویدئو بیشتر از حد مجاز است.")
         return
     async with SessionLocal() as session:
