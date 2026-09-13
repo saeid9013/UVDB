@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./uvdb.db"
     redis_url: str = "redis://localhost:6379/0"
     secret_key: str = "development-only-change-me"
+    admin_username: str = "admin"
+    admin_password: str = ""
     max_file_size: int = 500 * 1024 * 1024
     max_video_duration: int = 60 * 60
     max_concurrent_downloads: int = 1
