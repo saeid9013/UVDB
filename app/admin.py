@@ -114,3 +114,20 @@ async def youtube_check(
         "duration": info.duration,
         "formats": len(info.formats),
     }
+
+
+@router.get("/jobs/{job_id}")
+async def job_details(
+    job_id: int, _: Annotated[str, Depends(require_admin)]
+) -> dict[str, str | int | None]:
+    async with SessionLocal() as session:
+        job = await session.get(DownloadRequest, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="درخواست پیدا نشد.")
+    return {
+        "id": job.id,
+        "status": job.status,
+        "file_size": job.file_size,
+        "error_code": job.error_code,
+        "error_message": job.error_message,
+    }
