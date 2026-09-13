@@ -129,9 +129,9 @@ def _download_sync(
         }
     else:
         selector = (
-            "bestvideo+bestaudio/best"
+            "best[ext=mp4]/bestvideo+bestaudio/best"
             if quality == "best"
-            else f"bestvideo[height<={int(quality)}]+bestaudio/best[height<={int(quality)}]"
+            else f"best[ext=mp4][height<={int(quality)}]/bestvideo[height<={int(quality)}]+bestaudio/best[height<={int(quality)}]"
         )
         options = {**common, "format": selector, "merge_output_format": "mp4"}
     with yt_dlp.YoutubeDL(options) as ydl:
