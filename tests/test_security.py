@@ -15,3 +15,4 @@ def test_rejects_unsafe_urls(url):
 def test_accepts_supported_url():
     assert validate_media_url("https://www.youtube.com/watch?v=abc")
     assert detect_site("https://youtu.be/abc") == "youtube.com"
+    assert validate_media_url("https://www.pornhub.com/view_video.php?viewkey=test")
