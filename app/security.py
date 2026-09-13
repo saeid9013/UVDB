@@ -22,28 +22,28 @@ class InvalidUrl(ValueError):
 
 def validate_media_url(value: str, *, resolve_dns: bool = False) -> str:
     if not value or len(value) > 2048:
-        raise InvalidUrl("لینک خالی یا بیش از حد طولانی است.")
+        raise InvalidUrl("این لینک خالیه یا خیلی طولانیه؛ لطفاً لینک اصلی رو بفرست.")
     parsed = urlsplit(value.strip())
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise InvalidUrl("فقط لینک HTTP یا HTTPS معتبر است.")
+        raise InvalidUrl("لطفاً یک لینک معتبر با http یا https بفرست 😊")
     host = parsed.hostname.rstrip(".").lower()
     if host == "localhost":
-        raise InvalidUrl("آدرس محلی مجاز نیست.")
+        raise InvalidUrl("این آدرس محلیه و از روی سرور قابل دانلود نیست.")
     try:
         literal_address = ipaddress.ip_address(host)
     except ValueError:
         literal_address = None
     if literal_address is not None and not literal_address.is_global:
-        raise InvalidUrl("آدرس IP غیرعمومی مجاز نیست.")
+        raise InvalidUrl("این آدرس عمومی نیست و از روی سرور قابل دانلود نیست.")
     if resolve_dns:
         try:
             addresses = socket.getaddrinfo(host, parsed.port or 443)
         except socket.gaierror as exc:
-            raise InvalidUrl("دامنه قابل دسترسی یا قابل شناسایی نیست.") from exc
+            raise InvalidUrl("نتونستم به این دامنه وصل بشم؛ آدرس لینک رو بررسی کن 🙏") from exc
         for result in addresses:
             address = ipaddress.ip_address(result[4][0])
             if not address.is_global:
-                raise InvalidUrl("مقصد لینک عمومی و قابل دانلود نیست.")
+                raise InvalidUrl("مقصد این لینک عمومی نیست و امکان دانلودش وجود نداره.")
     return value.strip()
 
 

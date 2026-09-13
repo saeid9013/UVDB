@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -43,9 +44,11 @@ def _site_options(url: str, settings: Settings) -> dict:
         try:
             contents = base64.b64decode(cookie_value, validate=True)
         except ValueError as exc:
-            raise MediaError("تنظیمات Cookie رسانه نامعتبر است.") from exc
+            raise MediaError(
+                "یه مشکلی توی تنظیمات کوکی رسانه هست؛ مدیر ربات باید بررسیش کنه."
+            ) from exc
         if not contents.startswith((b"# Netscape HTTP Cookie File", b"# HTTP Cookie File")):
-            raise MediaError("فایل Cookie باید با فرمت Netscape باشد.")
+            raise MediaError("فرمت فایل کوکی درست نیست؛ مدیر ربات باید نسخه Netscape رو تنظیم کنه.")
         cookie_path.write_bytes(contents.replace(b"\r\n", b"\n"))
         cookie_path.chmod(0o600)
         options["cookiefile"] = str(cookie_path)
@@ -62,7 +65,7 @@ def _extract_sync(url: str, settings: Settings) -> MediaInfo:
     with yt_dlp.YoutubeDL(options) as ydl:
         data = ydl.extract_info(url, download=False)
     if data.get("_type") == "playlist":
-        raise MediaError("Playlist پشتیبانی نمی‌شود.")
+        raise MediaError("فعلاً دانلود Playlist ممکن نیست؛ لینک خود ویدئو رو بفرست 😊")
     formats = [
         {"id": f.get("format_id"), "height": f.get("height"), "ext": f.get("ext")}
         for f in data.get("formats", [])
@@ -90,7 +93,7 @@ async def extract_info(url: str, timeout: int = 60, settings: Settings | None = 
             raise MediaError(
                 "یوتیوب دسترسی سرور را محدود کرده است؛ کوکی یوتیوب مدیر باید به‌روزرسانی شود."
             ) from exc
-        raise MediaError("دریافت اطلاعات رسانه ناموفق بود.") from exc
+        raise MediaError("نتونستم اطلاعات این ویدئو رو بگیرم؛ لطفاً دوباره امتحان کن 🙏") from exc
 
 
 class TemporaryJob:
@@ -145,7 +148,7 @@ def _download_sync(
         if item.is_file() and item.suffix.lower() in allowed_suffixes
     ]
     if not files:
-        raise MediaError("فایل خروجی ایجاد نشد.")
+        raise MediaError("فایل ویدئو ساخته نشد؛ لطفاً دوباره امتحان کن 🙏")
     return max(files, key=lambda item: item.stat().st_mtime)
 
 
@@ -167,7 +170,7 @@ def _compress_video_sync(source: Path, max_size: int) -> Path:
     )
     duration = float(json.loads(probe.stdout)["format"]["duration"])
     if duration <= 0:
-        raise MediaError("مدت ویدئو برای فشرده‌سازی قابل تشخیص نیست.")
+        raise MediaError("مدت این ویدئو مشخص نشد و نتونستم فشرده‌ش کنم 😕")
 
     target_bytes = int(max_size * 0.90)
     audio_kbps = 48
@@ -195,7 +198,7 @@ def _compress_video_sync(source: Path, max_size: int) -> Path:
         r"scale=min(854\,iw):-2",
     ]
     subprocess.run(
-        [*common, "-pass", "1", "-passlogfile", passlog, "-an", "-f", "null", "NUL"],
+        [*common, "-pass", "1", "-passlogfile", passlog, "-an", "-f", "null", os.devnull],
         check=True,
         capture_output=True,
     )
@@ -220,7 +223,7 @@ def _compress_video_sync(source: Path, max_size: int) -> Path:
         capture_output=True,
     )
     if not output.exists() or output.stat().st_size > max_size:
-        raise MediaError("فشرده‌سازی ویدئو به اندازه قابل ارسال ممکن نشد.")
+        raise MediaError("حجم ویدئو بعد از فشرده‌سازی هنوز برای تلگرام زیاده 😕")
     return output
 
 
@@ -228,22 +231,22 @@ async def download_media(
     url: str, output_type: str, quality: str, directory: Path, settings: Settings
 ) -> Path:
     if shutil.disk_usage(directory).free < settings.max_source_file_size:
-        raise MediaError("فضای موقت کافی برای دانلود وجود ندارد.")
+        raise MediaError("فعلاً فضای کافی روی سرور ندارم؛ چند دقیقه دیگه امتحان کن 🙏")
     try:
         result = await asyncio.wait_for(
             asyncio.to_thread(_download_sync, url, output_type, quality, directory, settings),
             settings.download_timeout,
         )
     except (TimeoutError, yt_dlp.utils.DownloadError, ValueError) as exc:
-        raise MediaError("دانلود یا تبدیل رسانه ناموفق بود.") from exc
+        raise MediaError("دانلود یا تبدیل این ویدئو کامل نشد؛ لطفاً دوباره امتحان کن 🙏") from exc
     size = result.stat().st_size
     if size > settings.max_file_size:
         if output_type == "mp3":
-            raise MediaError("حجم فایل صوتی بیشتر از حد مجاز تلگرام است.")
+            raise MediaError("حجم فایل صوتی از سقف ارسال تلگرام بیشتره 😕")
         try:
             result = await asyncio.to_thread(_compress_video_sync, result, settings.max_file_size)
         except (OSError, subprocess.SubprocessError, KeyError, ValueError) as exc:
-            raise MediaError("فشرده‌سازی ویدئو برای ارسال در تلگرام ناموفق بود.") from exc
+            raise MediaError("نتونستم ویدئو رو برای ارسال در تلگرام فشرده کنم 😕") from exc
     return result
 
 

@@ -1,4 +1,5 @@
 import secrets
+from datetime import UTC, datetime
 from html import escape
 from typing import Annotated
 
@@ -143,6 +144,9 @@ async def retry_job(job_id: int, _: Annotated[str, Depends(require_admin)]) -> d
         if job.status != "failed":
             raise HTTPException(status_code=409, detail="فقط درخواست ناموفق قابل تلاش مجدد است.")
         job.status = "queued"
+        job.created_at = datetime.now(UTC)
+        job.completed_at = None
+        job.file_size = None
         job.error_code = None
         job.error_message = None
         await session.commit()
