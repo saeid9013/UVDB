@@ -82,7 +82,8 @@ async def process_download(ctx: dict, request_id: int) -> None:
                     await error_bot.send_message(
                         job.user.telegram_user_id,
                         (
-                            f"درخواست #{job.id} به‌دلیل طولانی‌شدن بیش از ۱۰ دقیقه لغو شد."
+                            f"درخواست #{job.id} به‌دلیل طولانی‌شدن بیش از "
+                            f"{settings.request_total_timeout // 60} دقیقه لغو شد."
                             if timed_out
                             else f"درخواست #{job.id} ناموفق بود؛ لطفاً دوباره تلاش کنید."
                         ),
