@@ -52,7 +52,9 @@ async def process_download(ctx: dict, request_id: int) -> None:
         except Exception as exc:  # noqa: BLE001 - job boundary must persist every failure
             job.status = "failed"
             job.error_code = type(exc).__name__.upper()
-            job.error_message = str(exc)[:1000]
+            cause = exc.__cause__ or exc.__context__
+            detail = f"{exc}: {cause}" if cause else str(exc)
+            job.error_message = detail[:1000]
             if settings.bot_token:
                 error_bot = Bot(settings.bot_token)
                 try:
