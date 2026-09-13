@@ -23,19 +23,27 @@ class MediaInfo:
     formats: list[dict]
 
 
-def _youtube_options(settings: Settings) -> dict:
+def _site_options(url: str, settings: Settings) -> dict:
     options: dict = {}
     if settings.youtube_proxy_url:
         options["proxy"] = settings.youtube_proxy_url
-    if settings.youtube_cookies_b64:
-        cookie_path = settings.temp_dir.resolve() / ".youtube-cookies.txt"
+    cookie_value = ""
+    cookie_name = ""
+    if "instagram.com" in url.lower():
+        cookie_value = settings.instagram_cookies_b64
+        cookie_name = ".instagram-cookies.txt"
+    elif "youtube.com" in url.lower() or "youtu.be" in url.lower():
+        cookie_value = settings.youtube_cookies_b64
+        cookie_name = ".youtube-cookies.txt"
+    if cookie_value:
+        cookie_path = settings.temp_dir.resolve() / cookie_name
         cookie_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            contents = base64.b64decode(settings.youtube_cookies_b64, validate=True)
+            contents = base64.b64decode(cookie_value, validate=True)
         except ValueError as exc:
-            raise MediaError("تنظیمات کوکی یوتیوب نامعتبر است.") from exc
+            raise MediaError("تنظیمات Cookie رسانه نامعتبر است.") from exc
         if not contents.startswith((b"# Netscape HTTP Cookie File", b"# HTTP Cookie File")):
-            raise MediaError("فایل کوکی یوتیوب باید با فرمت Netscape باشد.")
+            raise MediaError("فایل Cookie باید با فرمت Netscape باشد.")
         cookie_path.write_bytes(contents.replace(b"\r\n", b"\n"))
         cookie_path.chmod(0o600)
         options["cookiefile"] = str(cookie_path)
@@ -47,7 +55,7 @@ def _extract_sync(url: str, settings: Settings) -> MediaInfo:
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
-        **_youtube_options(settings),
+        **_site_options(url, settings),
     }
     with yt_dlp.YoutubeDL(options) as ydl:
         data = ydl.extract_info(url, download=False)
@@ -72,6 +80,10 @@ async def extract_info(url: str, timeout: int = 60, settings: Settings | None = 
         return await asyncio.wait_for(asyncio.to_thread(_extract_sync, url, settings), timeout)
     except (TimeoutError, yt_dlp.utils.DownloadError) as exc:
         detail = str(exc).lower()
+        if "instagram" in url.lower() and ("log in" in detail or "login" in detail):
+            raise MediaError(
+                "این Story اینستاگرام به ورود نیاز دارد؛ Cookie اینستاگرام مدیر باید تنظیم یا به‌روزرسانی شود."
+            ) from exc
         if "not a bot" in detail or "sign in" in detail:
             raise MediaError(
                 "یوتیوب دسترسی سرور را محدود کرده است؛ کوکی یوتیوب مدیر باید به‌روزرسانی شود."
@@ -101,7 +113,7 @@ def _download_sync(
         "max_filesize": settings.max_file_size,
         "retries": 2,
         "continuedl": False,
-        **_youtube_options(settings),
+        **_site_options(url, settings),
     }
     if output_type == "mp3":
         options = {
