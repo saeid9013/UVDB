@@ -36,7 +36,7 @@ async def receive_url(message: Message):
         return
     await message.answer("در حال دریافت اطلاعات ویدئو…")
     try:
-        info = await extract_info(url)
+        info = await extract_info(url, settings=settings)
     except MediaError as exc:
         await message.answer(str(exc))
         return

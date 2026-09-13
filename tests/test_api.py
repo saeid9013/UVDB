@@ -12,3 +12,9 @@ def test_health():
         response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_admin_requires_authentication():
+    with TestClient(app) as client:
+        response = client.get("/admin")
+    assert response.status_code == 401

@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from redis.asyncio import Redis
 from sqlalchemy import select, text
 
+from app.admin import router as admin_router
 from app.config import get_settings
 from app.database import DownloadRequest, SessionLocal, User, init_database
 from app.media import MediaError, cleanup_stale_jobs, extract_info
@@ -36,6 +37,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="UVDB", version="0.1.0", lifespan=lifespan)
+app.include_router(admin_router)
+
+
+@app.get("/")
+async def home():
+    return {
+        "app": settings.app_name,
+        "status": "running",
+        "version": "0.1.0",
+        "health": "/health",
+        "docs": "/docs",
+        "telegram_bot": "https://t.me/donins_bot",
+    }
 
 
 @app.get("/health")
