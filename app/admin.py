@@ -2,6 +2,7 @@ import secrets
 from html import escape
 from typing import Annotated
 
+from arq import create_pool
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -131,3 +132,23 @@ async def job_details(
         "error_code": job.error_code,
         "error_message": job.error_message,
     }
+
+
+@router.post("/jobs/{job_id}/retry")
+async def retry_job(job_id: int, _: Annotated[str, Depends(require_admin)]) -> dict[str, str | int]:
+    async with SessionLocal() as session:
+        job = await session.get(DownloadRequest, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="درخواست پیدا نشد.")
+        if job.status != "failed":
+            raise HTTPException(status_code=409, detail="فقط درخواست ناموفق قابل تلاش مجدد است.")
+        job.status = "queued"
+        job.error_code = None
+        job.error_message = None
+        await session.commit()
+    queue = await create_pool(settings.arq_redis_settings)
+    try:
+        await queue.enqueue_job("process_download", job_id)
+    finally:
+        await queue.close()
+    return {"id": job_id, "status": "queued"}

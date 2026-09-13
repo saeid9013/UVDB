@@ -43,6 +43,7 @@ async def process_download(ctx: dict, request_id: int) -> None:
                         job.user.telegram_user_id,
                         FSInputFile(output),
                         caption="دانلود شما آماده است ✅",
+                        request_timeout=settings.telegram_upload_timeout,
                     )
                 finally:
                     await bot.session.close()
@@ -52,6 +53,18 @@ async def process_download(ctx: dict, request_id: int) -> None:
             job.status = "failed"
             job.error_code = type(exc).__name__.upper()
             job.error_message = str(exc)[:1000]
+            if settings.bot_token:
+                error_bot = Bot(settings.bot_token)
+                try:
+                    await error_bot.send_message(
+                        job.user.telegram_user_id,
+                        f"درخواست #{job.id} ناموفق بود؛ لطفاً دوباره تلاش کنید.",
+                        request_timeout=60,
+                    )
+                except Exception:  # noqa: BLE001, S110 - notification must not hide original failure
+                    pass
+                finally:
+                    await error_bot.session.close()
         await session.commit()
 
 
