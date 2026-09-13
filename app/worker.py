@@ -54,9 +54,10 @@ async def process_download(ctx: dict, request_id: int) -> None:
                                 await bot.send_document(
                                     job.user.telegram_user_id,
                                     FSInputFile(output),
-                                    caption="دانلود شما آماده است ✅",
+                                    caption="آماده شد! دانلودت با موفقیت انجام شد ✅",
                                     request_timeout=settings.telegram_upload_timeout,
                                 )
+                                await bot.send_message(job.user.telegram_user_id, "🎉")
                                 break
                             except TelegramNetworkError:
                                 if attempt == 2:
@@ -82,10 +83,11 @@ async def process_download(ctx: dict, request_id: int) -> None:
                     await error_bot.send_message(
                         job.user.telegram_user_id,
                         (
-                            f"درخواست #{job.id} به‌دلیل طولانی‌شدن بیش از "
-                            f"{settings.request_total_timeout // 60} دقیقه لغو شد."
+                            f"درخواست #{job.id} بیشتر از "
+                            f"{settings.request_total_timeout // 60} دقیقه طول کشید و لغوش کردم ⏱️ "
+                            "لطفاً با کیفیت پایین‌تر دوباره امتحان کن."
                             if timed_out
-                            else f"درخواست #{job.id} ناموفق بود؛ لطفاً دوباره تلاش کنید."
+                            else f"متأسفانه درخواست #{job.id} انجام نشد؛ یه بار دیگه امتحان کن 🙏"
                         ),
                         request_timeout=60,
                     )

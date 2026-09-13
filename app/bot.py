@@ -17,13 +17,18 @@ dispatcher = Dispatcher()
 
 @dispatcher.message(CommandStart())
 async def start(message: Message):
-    await message.answer("سلام! لینک عمومی ویدئو را بفرستید. خروجی پیش‌فرض MP4 با بهترین کیفیت است.")
+    name = message.from_user.first_name if message.from_user else "دوست من"
+    await message.answer(
+        f"سلام {name} جان! 👋 خوش اومدی به دانلودین.\n"
+        "فقط لینک ویدئو رو بفرست تا کیفیت‌های موجود رو برات آماده کنم 🚀"
+    )
 
 
 @dispatcher.message(Command("help"))
 async def help_command(message: Message):
     await message.answer(
-        "یک لینک عمومی از سایت‌های پشتیبانی‌شده ارسال کنید. Playlist و محتوای خصوصی پشتیبانی نمی‌شود."
+        "لینک عمومی ویدئو رو بفرست و کیفیت دلخواهت رو انتخاب کن 😊\n"
+        "لینک‌های خصوصی، DRM و Playlist قابل دانلود نیستن."
     )
 
 
@@ -34,14 +39,14 @@ async def receive_url(message: Message):
     except InvalidUrl as exc:
         await message.answer(str(exc))
         return
-    await message.answer("در حال دریافت اطلاعات ویدئو…")
+    await message.answer("یه لحظه صبر کن، دارم اطلاعات ویدئو رو پیدا می‌کنم… 🔍")
     try:
         info = await extract_info(url, settings=settings)
     except MediaError as exc:
         await message.answer(str(exc))
         return
     if detect_site(url) != "youtube.com" and info.duration > settings.max_video_duration:
-        await message.answer("مدت ویدئو بیشتر از حد مجاز است.")
+        await message.answer("این ویدئو از محدودیت زمانی مجاز طولانی‌تره 😕")
         return
     async with SessionLocal() as session:
         user = await session.scalar(
@@ -60,7 +65,9 @@ async def receive_url(message: Message):
             )
         )
         if active_count >= settings.active_request_limit:
-            await message.answer("تعداد درخواست‌های فعال شما به سقف مجاز رسیده است.")
+            await message.answer(
+                "چند دانلودت هنوز در حال انجامه؛ صبر کن تموم بشن و دوباره بفرست ⏳"
+            )
             return
         job = DownloadRequest(
             user_id=user.id, original_url=url, title=info.title, status="received"
@@ -81,7 +88,7 @@ async def receive_url(message: Message):
         [InlineKeyboardButton(text="🎵 MP3", callback_data=f"download:{job.id}:mp3:best")]
     )
     await message.answer(
-        f"{info.title}\nکیفیت یا خروجی را انتخاب کنید:",
+        f"🎬 {info.title}\n\nخب، کدوم کیفیت یا خروجی رو می‌خوای؟",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
 
@@ -98,7 +105,9 @@ async def choose_format(callback: CallbackQuery):
             )
         )
         if not job or job.status != "received":
-            await callback.answer("این درخواست دیگر قابل استفاده نیست.", show_alert=True)
+            await callback.answer(
+                "این درخواست دیگه قابل استفاده نیست؛ لینک رو دوباره بفرست.", show_alert=True
+            )
             return
         job.output_type = output_type
         job.selected_format = quality
@@ -109,9 +118,9 @@ async def choose_format(callback: CallbackQuery):
         await queue.enqueue_job("process_download", job.id)
     finally:
         await queue.close()
-    await callback.answer("درخواست وارد صف شد.")
+    await callback.answer("عالیه! درخواستت رفت توی صف 🚀")
     if callback.message:
-        await callback.message.edit_text(f"درخواست #{job.id} وارد صف شد ✅")
+        await callback.message.edit_text(f"درخواست #{job.id} رفت توی صف؛ به‌محض آماده‌شدن می‌فرستم ✅")
 
 
 async def run_bot():
