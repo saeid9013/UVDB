@@ -30,17 +30,20 @@ def validate_media_url(value: str, *, resolve_dns: bool = False) -> str:
     if host == "localhost":
         raise InvalidUrl("آدرس محلی مجاز نیست.")
     try:
-        if ipaddress.ip_address(host).is_private or ipaddress.ip_address(host).is_loopback:
-            raise InvalidUrl("آدرس شبکه خصوصی مجاز نیست.")
+        literal_address = ipaddress.ip_address(host)
     except ValueError:
-        pass
-    if not any(host == domain or host.endswith(f".{domain}") for domain in SUPPORTED_HOSTS):
-        raise InvalidUrl("این سایت در حال حاضر پشتیبانی نمی‌شود.")
+        literal_address = None
+    if literal_address is not None and not literal_address.is_global:
+        raise InvalidUrl("آدرس IP غیرعمومی مجاز نیست.")
     if resolve_dns:
-        for result in socket.getaddrinfo(host, parsed.port or 443):
+        try:
+            addresses = socket.getaddrinfo(host, parsed.port or 443)
+        except socket.gaierror as exc:
+            raise InvalidUrl("دامنه قابل دسترسی یا قابل شناسایی نیست.") from exc
+        for result in addresses:
             address = ipaddress.ip_address(result[4][0])
-            if address.is_private or address.is_loopback or address.is_link_local:
-                raise InvalidUrl("مقصد لینک به شبکه خصوصی اشاره می‌کند.")
+            if not address.is_global:
+                raise InvalidUrl("مقصد لینک عمومی و قابل دانلود نیست.")
     return value.strip()
 
 
@@ -49,4 +52,4 @@ def detect_site(url: str) -> str:
     for site in SUPPORTED_HOSTS:
         if host == site or host.endswith(f".{site}"):
             return {"youtu.be": "youtube.com", "x.com": "twitter.com"}.get(site, site)
-    raise InvalidUrl("سایت قابل تشخیص نیست.")
+    return host
