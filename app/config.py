@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = ""
     youtube_cookies_b64: str = ""
+    instagram_cookies_b64: str = ""
     youtube_proxy_url: str = ""
     max_file_size: int = 500 * 1024 * 1024
     max_video_duration: int = 60 * 60

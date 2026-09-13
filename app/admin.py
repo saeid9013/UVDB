@@ -9,6 +9,8 @@ from sqlalchemy import case, func, select
 
 from app.config import get_settings
 from app.database import DownloadRequest, SessionLocal, User
+from app.media import MediaError, extract_info
+from app.security import InvalidUrl, validate_media_url
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 security = HTTPBasic()
@@ -93,3 +95,22 @@ async def dashboard(_: Annotated[str, Depends(require_admin)]) -> HTMLResponse:
     )
     html = f"""<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>پنل UVDB</title><style>@font-face{{font-family:Vazirmatn;src:url(https://cdn.jsdelivr.net/npm/@fontsource/vazirmatn@5.2.6/files/vazirmatn-arabic-400-normal.woff2) format("woff2");font-weight:400;font-display:swap}}@font-face{{font-family:Vazirmatn;src:url(https://cdn.jsdelivr.net/npm/@fontsource/vazirmatn@5.2.6/files/vazirmatn-arabic-700-normal.woff2) format("woff2");font-weight:700;font-display:swap}}body{{font-family:Vazirmatn,Tahoma,Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:24px}}.wrap{{max-width:1200px;margin:auto}}h1{{color:#60a5fa}}.card{{background:#1e293b;border-radius:14px;padding:18px;margin:18px 0;overflow:auto}}table{{width:100%;border-collapse:collapse;min-width:760px}}th,td{{padding:11px;border-bottom:1px solid #334155;text-align:right}}th{{color:#93c5fd}}small{{color:#94a3b8}}</style></head><body><main class="wrap"><h1>پنل مدیریت UVDB</h1><small>آمار بر اساس اطلاعات ثبت‌شده در PostgreSQL است.</small><section class="card"><h2>آمار کاربران</h2><table><thead><tr><th>Telegram ID</th><th>Username</th><th>کل</th><th>موفق</th><th>ناموفق</th><th>حجم موفق</th><th>آخرین فعالیت</th></tr></thead><tbody>{user_body}</tbody></table></section><section class="card"><h2>۱۰۰ درخواست آخر</h2><table><thead><tr><th>ID</th><th>Telegram ID</th><th>عنوان</th><th>نوع</th><th>وضعیت</th><th>حجم</th><th>زمان</th></tr></thead><tbody>{job_body}</tbody></table></section></main></body></html>"""
     return HTMLResponse(html)
+
+
+@router.get("/youtube-check")
+async def youtube_check(
+    url: str, _: Annotated[str, Depends(require_admin)]
+) -> dict[str, str | int]:
+    try:
+        safe_url = validate_media_url(url, resolve_dns=True)
+        info = await extract_info(safe_url, settings=settings)
+    except InvalidUrl as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except MediaError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "title": info.title,
+        "duration": info.duration,
+        "formats": len(info.formats),
+    }
