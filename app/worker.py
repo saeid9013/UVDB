@@ -1,4 +1,5 @@
 import asyncio
+import math
 from datetime import UTC, datetime
 from typing import ClassVar
 
@@ -9,10 +10,17 @@ from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
 from app.database import DownloadRequest, SessionLocal
-from app.media import TemporaryJob, download_media
+from app.media import TemporaryJob, download_media, extract_info
 from app.security import validate_media_url
 
 settings = get_settings()
+
+
+def estimate_wait_minutes(duration: int, output_type: str) -> tuple[int, int]:
+    base = max(1, math.ceil(max(duration, 1) / 300))
+    if output_type == "video":
+        base = max(2, base)
+    return base, min(60, max(5, base * 3))
 
 
 async def process_download(ctx: dict, request_id: int) -> None:
@@ -36,6 +44,26 @@ async def process_download(ctx: dict, request_id: int) -> None:
                 job.status = "downloading"
                 await session.commit()
                 url = validate_media_url(job.original_url, resolve_dns=True)
+                try:
+                    media_info = await extract_info(url, timeout=60, settings=settings)
+                    wait_min, wait_max = estimate_wait_minutes(media_info.duration, job.output_type)
+                    estimate_text = (
+                        f"دانلود درخواست #{job.id} شروع شد ⏳\n"
+                        f"زمان تقریبی انتظار: حدود {wait_min} تا {wait_max} دقیقه. "
+                        "اگه سایت مقصد کند باشه ممکنه کمی بیشتر طول بکشه."
+                    )
+                except Exception:  # noqa: BLE001 - estimate must never block a download
+                    estimate_text = (
+                        f"دانلود درخواست #{job.id} شروع شد ⏳\n"
+                        "معمولاً چند دقیقه زمان می‌بره؛ به‌محض آماده‌شدن برات می‌فرستم."
+                    )
+                estimate_bot = Bot(settings.bot_token)
+                try:
+                    await estimate_bot.send_message(
+                        job.user.telegram_user_id, estimate_text, request_timeout=60
+                    )
+                finally:
+                    await estimate_bot.session.close()
                 async with TemporaryJob(settings.temp_dir) as directory:
                     output = await download_media(
                         url, job.output_type, job.selected_format, directory, settings

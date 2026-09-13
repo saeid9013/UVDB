@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     instagram_cookies_b64: str = ""
     youtube_proxy_url: str = ""
     max_file_size: int = 500 * 1024 * 1024
-    max_source_file_size: int = 600 * 1024 * 1024
+    max_source_file_size: int = 1024 * 1024 * 1024
     max_video_duration: int = 60 * 60
     max_concurrent_downloads: int = 3
     download_timeout: int = 1200
