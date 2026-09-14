@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
@@ -18,6 +19,21 @@ dispatcher = Dispatcher()
 @dispatcher.message(CommandStart())
 async def start(message: Message):
     name = message.from_user.first_name if message.from_user else "دوست من"
+    if message.from_user:
+        async with SessionLocal() as session:
+            user = await session.scalar(
+                select(User).where(User.telegram_user_id == message.from_user.id)
+            )
+            if not user:
+                user = User(
+                    telegram_user_id=message.from_user.id,
+                    username=message.from_user.username,
+                )
+                session.add(user)
+            user.username = message.from_user.username
+            user.last_active_at = datetime.now(UTC)
+            user.bot_blocked_at = None
+            await session.commit()
     await message.answer(
         f"سلام {name} جان! 👋 خوش اومدی به دانلودین.\n"
         "فقط لینک ویدئو رو بفرست تا کیفیت‌های موجود رو برات آماده کنم 🚀"
@@ -56,6 +72,9 @@ async def receive_url(message: Message):
             user = User(telegram_user_id=message.from_user.id, username=message.from_user.username)
             session.add(user)
             await session.flush()
+        user.username = message.from_user.username
+        user.last_active_at = datetime.now(UTC)
+        user.bot_blocked_at = None
         active_count = await session.scalar(
             select(func.count(DownloadRequest.id)).where(
                 DownloadRequest.user_id == user.id,
@@ -104,6 +123,12 @@ async def choose_format(callback: CallbackQuery):
                 DownloadRequest.id == int(raw_id), User.telegram_user_id == callback.from_user.id
             )
         )
+        user = await session.scalar(
+            select(User).where(User.telegram_user_id == callback.from_user.id)
+        )
+        if user:
+            user.last_active_at = datetime.now(UTC)
+            user.bot_blocked_at = None
         if not job or job.status != "received":
             await callback.answer(
                 "این درخواست دیگه قابل استفاده نیست؛ لینک رو دوباره بفرست.", show_alert=True
