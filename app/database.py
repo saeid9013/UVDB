@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text, inspect, text
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -31,6 +31,10 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+    last_active_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
+    )
+    bot_blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     downloads: Mapped[list["DownloadRequest"]] = relationship(back_populates="user")
 
 
@@ -58,6 +62,18 @@ engine = create_async_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
+def _ensure_user_tracking_columns(connection) -> None:
+    columns = {column["name"] for column in inspect(connection).get_columns("users")}
+    if "last_active_at" not in columns:
+        connection.execute(text("ALTER TABLE users ADD COLUMN last_active_at TIMESTAMP"))
+    if "bot_blocked_at" not in columns:
+        connection.execute(text("ALTER TABLE users ADD COLUMN bot_blocked_at TIMESTAMP"))
+    connection.execute(
+        text("UPDATE users SET last_active_at = created_at WHERE last_active_at IS NULL")
+    )
+
+
 async def init_database() -> None:
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        await connection.run_sync(_ensure_user_tracking_columns)

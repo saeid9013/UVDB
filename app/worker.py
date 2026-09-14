@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import ClassVar
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramNetworkError
+from aiogram.exceptions import TelegramForbiddenError, TelegramNetworkError
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -177,8 +177,11 @@ async def process_download(ctx: dict, request_id: int) -> None:
                         await bot.session.close()
                 job.status = "completed"
                 job.completed_at = datetime.now(UTC)
+                job.user.bot_blocked_at = None
         except Exception as exc:  # noqa: BLE001 - job boundary must persist every failure
             job.status = "failed"
+            if isinstance(exc, TelegramForbiddenError):
+                job.user.bot_blocked_at = datetime.now(UTC)
             timed_out = isinstance(exc, TimeoutError)
             job.error_code = "REQUEST_TIMEOUT" if timed_out else type(exc).__name__.upper()
             cause = exc.__cause__ or exc.__context__
@@ -202,8 +205,9 @@ async def process_download(ctx: dict, request_id: int) -> None:
                         ),
                         request_timeout=60,
                     )
-                except Exception:  # noqa: BLE001, S110 - notification must not hide original failure
-                    pass
+                except Exception as notification_exc:  # noqa: BLE001
+                    if isinstance(notification_exc, TelegramForbiddenError):
+                        job.user.bot_blocked_at = datetime.now(UTC)
                 finally:
                     await error_bot.session.close()
         await session.commit()
