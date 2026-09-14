@@ -23,6 +23,10 @@ def estimate_wait_minutes(duration: int, output_type: str) -> tuple[int, int]:
     return base, min(60, max(5, base * 3))
 
 
+def split_message(text: str, limit: int = 3900) -> list[str]:
+    return [text[index : index + limit] for index in range(0, len(text), limit)]
+
+
 async def process_download(ctx: dict, request_id: int) -> None:
     async with SessionLocal() as session:
         job = await session.scalar(
@@ -44,6 +48,7 @@ async def process_download(ctx: dict, request_id: int) -> None:
                 job.status = "downloading"
                 await session.commit()
                 url = validate_media_url(job.original_url, resolve_dns=True)
+                media_info = None
                 try:
                     media_info = await extract_info(url, timeout=60, settings=settings)
                     wait_min, wait_max = estimate_wait_minutes(media_info.duration, job.output_type)
@@ -85,11 +90,36 @@ async def process_download(ctx: dict, request_id: int) -> None:
                                     caption="آماده شد! دانلودت با موفقیت انجام شد ✅",
                                     request_timeout=settings.telegram_upload_timeout,
                                 )
-                                await bot.send_message(job.user.telegram_user_id, "🎉")
                                 break
                             except TelegramNetworkError:
                                 if attempt == 2:
                                     raise
+                        if "instagram.com" in url.lower():
+                            if media_info and media_info.description.strip():
+                                caption_text = (
+                                    f"📝 کپشن پست اینستاگرام:\n\n{media_info.description.strip()}"
+                                )
+                                for chunk in split_message(caption_text):
+                                    await bot.send_message(
+                                        job.user.telegram_user_id,
+                                        chunk,
+                                        request_timeout=60,
+                                    )
+                            subtitle_files = sorted(
+                                [
+                                    *directory.glob("*.srt"),
+                                    *directory.glob("*.vtt"),
+                                    *directory.glob("*.ass"),
+                                ]
+                            )
+                            for subtitle in subtitle_files:
+                                await bot.send_document(
+                                    job.user.telegram_user_id,
+                                    FSInputFile(subtitle),
+                                    caption=f"💬 زیرنویس ویدئو — {subtitle.name}",
+                                    request_timeout=settings.telegram_upload_timeout,
+                                )
+                        await bot.send_message(job.user.telegram_user_id, "🎉")
                     finally:
                         await bot.session.close()
                 job.status = "completed"
