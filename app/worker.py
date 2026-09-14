@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.config import get_settings
 from app.database import DownloadRequest, SessionLocal
 from app.media import TemporaryJob, download_media, extract_info
+from app.pixeldrain import delete_file, upload_file
 from app.security import validate_media_url
 
 settings = get_settings()
@@ -21,6 +22,25 @@ def estimate_wait_minutes(duration: int, output_type: str) -> tuple[int, int]:
     if output_type == "video":
         base = max(2, base)
     return base, min(60, max(5, base * 3))
+
+
+def split_message(text: str, limit: int = 3900) -> list[str]:
+    return [text[index : index + limit] for index in range(0, len(text), limit)]
+
+
+def build_file_caption(description: str = "") -> tuple[str, str]:
+    footer = f"\n\n📥 دانلود با ربات:\n{settings.bot_public_url}"
+    description = description.strip()
+    available = 1024 - len(footer)
+    if not description:
+        return f"آماده شد! دانلودت با موفقیت انجام شد ✅{footer}", ""
+    if len(description) <= available:
+        return f"{description}{footer}", ""
+    return f"{description[: available - 1]}…{footer}", description
+
+
+async def delete_pixeldrain_upload(ctx: dict, file_id: str) -> None:
+    await delete_file(file_id, settings.pixeldrain_api_key)
 
 
 async def process_download(ctx: dict, request_id: int) -> None:
@@ -44,6 +64,7 @@ async def process_download(ctx: dict, request_id: int) -> None:
                 job.status = "downloading"
                 await session.commit()
                 url = validate_media_url(job.original_url, resolve_dns=True)
+                media_info = None
                 try:
                     media_info = await extract_info(url, timeout=60, settings=settings)
                     wait_min, wait_max = estimate_wait_minutes(media_info.duration, job.output_type)
@@ -77,19 +98,81 @@ async def process_download(ctx: dict, request_id: int) -> None:
                     try:
                         from aiogram.types import FSInputFile
 
-                        for attempt in range(3):
-                            try:
+                        instagram_description = ""
+                        if "instagram.com" in url.lower() and media_info:
+                            instagram_description = media_info.description
+                        file_caption, full_description = build_file_caption(instagram_description)
+
+                        if output.stat().st_size > settings.telegram_direct_file_size:
+                            file_id, download_url = await upload_file(
+                                output,
+                                settings.pixeldrain_api_key,
+                                settings.telegram_upload_timeout,
+                            )
+                            link_footer = (
+                                f"\n\n🔗 لینک دانلود: {download_url}\n"
+                                "⏳ این لینک تا ۲ ساعت معتبره.\n"
+                                f"📥 دانلود با ربات: {settings.bot_public_url}"
+                            )
+                            description = instagram_description.strip()
+                            available = 4096 - len(link_footer)
+                            link_message = (
+                                f"{description[: available - 1]}…{link_footer}"
+                                if len(description) > available
+                                else f"{description}{link_footer}".lstrip()
+                            )
+                            await bot.send_message(
+                                job.user.telegram_user_id,
+                                link_message,
+                                request_timeout=60,
+                            )
+                            if len(description) > available:
+                                full_description = description
+                            await ctx["redis"].enqueue_job(
+                                "delete_pixeldrain_upload",
+                                file_id,
+                                _defer_by=settings.pixeldrain_link_ttl_seconds,
+                            )
+                        else:
+                            for attempt in range(3):
+                                try:
+                                    await bot.send_document(
+                                        job.user.telegram_user_id,
+                                        FSInputFile(output),
+                                        caption=file_caption,
+                                        request_timeout=settings.telegram_upload_timeout,
+                                    )
+                                    break
+                                except TelegramNetworkError:
+                                    if attempt == 2:
+                                        raise
+
+                        if full_description:
+                            for chunk in split_message(
+                                f"📝 متن کامل کپشن اینستاگرام:\n\n{full_description}"
+                            ):
+                                await bot.send_message(
+                                    job.user.telegram_user_id,
+                                    chunk,
+                                    request_timeout=60,
+                                )
+
+                        if "instagram.com" in url.lower():
+                            subtitle_files = sorted(
+                                [
+                                    *directory.glob("*.srt"),
+                                    *directory.glob("*.vtt"),
+                                    *directory.glob("*.ass"),
+                                ]
+                            )
+                            for subtitle in subtitle_files:
                                 await bot.send_document(
                                     job.user.telegram_user_id,
-                                    FSInputFile(output),
-                                    caption="آماده شد! دانلودت با موفقیت انجام شد ✅",
+                                    FSInputFile(subtitle),
+                                    caption=f"💬 زیرنویس ویدئو — {subtitle.name}",
                                     request_timeout=settings.telegram_upload_timeout,
                                 )
-                                await bot.send_message(job.user.telegram_user_id, "🎉")
-                                break
-                            except TelegramNetworkError:
-                                if attempt == 2:
-                                    raise
+                        await bot.send_message(job.user.telegram_user_id, "🎉")
                     finally:
                         await bot.session.close()
                 job.status = "completed"
@@ -127,7 +210,7 @@ async def process_download(ctx: dict, request_id: int) -> None:
 
 
 class WorkerSettings:
-    functions: ClassVar = [process_download]
+    functions: ClassVar = [process_download, delete_pixeldrain_upload]
     redis_settings = settings.arq_redis_settings
     max_jobs = settings.max_concurrent_downloads
     job_timeout = settings.request_total_timeout + 60

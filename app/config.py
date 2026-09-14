@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     download_timeout: int = 1200
     request_total_timeout: int = 1800
     telegram_upload_timeout: int = 600
+    telegram_direct_file_size: int = 50 * 1024 * 1024
+    bot_public_url: str = "https://t.me/donins_bot"
+    pixeldrain_api_key: str = ""
+    pixeldrain_link_ttl_seconds: int = 2 * 60 * 60
     retry_count: int = 2
     temp_retention_minutes: int = 30
     daily_download_limit: int = 5

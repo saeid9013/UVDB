@@ -23,6 +23,7 @@ class MediaInfo:
     title: str
     duration: int
     thumbnail: str | None
+    description: str
     formats: list[dict]
 
 
@@ -75,6 +76,7 @@ def _extract_sync(url: str, settings: Settings) -> MediaInfo:
         title=data.get("title") or "media",
         duration=int(data.get("duration") or 0),
         thumbnail=data.get("thumbnail"),
+        description=data.get("description") or "",
         formats=formats,
     )
 
@@ -139,6 +141,15 @@ def _download_sync(
             else f"best[ext=mp4][height<={int(quality)}]/bestvideo[height<={int(quality)}]+bestaudio/best[height<={int(quality)}]"
         )
         options = {**common, "format": selector, "merge_output_format": "mp4"}
+        if "instagram.com" in url.lower():
+            options.update(
+                {
+                    "writesubtitles": True,
+                    "writeautomaticsub": True,
+                    "subtitleslangs": ["all"],
+                    "subtitlesformat": "srt/vtt/best",
+                }
+            )
     with yt_dlp.YoutubeDL(options) as ydl:
         ydl.download([url])
     allowed_suffixes = {".mp3"} if output_type == "mp3" else {".mp4", ".mkv", ".webm", ".mov"}
