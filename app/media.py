@@ -1,9 +1,6 @@
 import asyncio
 import base64
-import json
-import os
 import shutil
-import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -163,81 +160,6 @@ def _download_sync(
     return max(files, key=lambda item: item.stat().st_mtime)
 
 
-def _compress_video_sync(source: Path, max_size: int) -> Path:
-    probe = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "json",
-            str(source),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    duration = float(json.loads(probe.stdout)["format"]["duration"])
-    if duration <= 0:
-        raise MediaError("مدت این ویدئو مشخص نشد و نتونستم فشرده‌ش کنم 😕")
-
-    target_bytes = int(max_size * 0.90)
-    audio_kbps = 48
-    video_kbps = max(48, int(target_bytes * 8 / duration / 1000) - audio_kbps - 8)
-    output = source.with_name("compressed.mp4")
-    passlog = str(source.with_name("ffmpeg-pass"))
-    common = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        str(source),
-        "-map",
-        "0:v:0",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-b:v",
-        f"{video_kbps}k",
-        "-maxrate",
-        f"{video_kbps}k",
-        "-bufsize",
-        f"{video_kbps * 2}k",
-        "-vf",
-        r"scale=min(854\,iw):-2",
-    ]
-    subprocess.run(
-        [*common, "-pass", "1", "-passlogfile", passlog, "-an", "-f", "null", os.devnull],
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        [
-            *common,
-            "-pass",
-            "2",
-            "-passlogfile",
-            passlog,
-            "-map",
-            "0:a:0?",
-            "-c:a",
-            "aac",
-            "-b:a",
-            f"{audio_kbps}k",
-            "-movflags",
-            "+faststart",
-            str(output),
-        ],
-        check=True,
-        capture_output=True,
-    )
-    if not output.exists() or output.stat().st_size > max_size:
-        raise MediaError("حجم ویدئو بعد از فشرده‌سازی هنوز برای تلگرام زیاده 😕")
-    return output
-
-
 async def download_media(
     url: str, output_type: str, quality: str, directory: Path, settings: Settings
 ) -> Path:
@@ -250,14 +172,8 @@ async def download_media(
         )
     except (TimeoutError, yt_dlp.utils.DownloadError, ValueError) as exc:
         raise MediaError("دانلود یا تبدیل این ویدئو کامل نشد؛ لطفاً دوباره امتحان کن 🙏") from exc
-    size = result.stat().st_size
-    if size > settings.max_file_size:
-        if output_type == "mp3":
-            raise MediaError("حجم فایل صوتی از سقف ارسال تلگرام بیشتره 😕")
-        try:
-            result = await asyncio.to_thread(_compress_video_sync, result, settings.max_file_size)
-        except (OSError, subprocess.SubprocessError, KeyError, ValueError) as exc:
-            raise MediaError("نتونستم ویدئو رو برای ارسال در تلگرام فشرده کنم 😕") from exc
+    if result.stat().st_size > settings.max_source_file_size:
+        raise MediaError("حجم فایل از سقف یک گیگابایتی ربات بیشتره 😕")
     return result
 
 

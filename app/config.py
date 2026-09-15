@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     secret_key: str = "development-only-change-me"
     admin_username: str = "admin"
     admin_password: str = ""
+    admin_telegram_id: int = 0
     youtube_cookies_b64: str = ""
     instagram_cookies_b64: str = ""
     youtube_proxy_url: str = ""
@@ -28,7 +29,7 @@ class Settings(BaseSettings):
     download_timeout: int = 1200
     request_total_timeout: int = 1800
     telegram_upload_timeout: int = 600
-    telegram_direct_file_size: int = 50 * 1024 * 1024
+    telegram_direct_file_size: int = 50_000_000
     bot_public_url: str = "https://t.me/donins_bot"
     pixeldrain_api_key: str = ""
     pixeldrain_link_ttl_seconds: int = 2 * 60 * 60
